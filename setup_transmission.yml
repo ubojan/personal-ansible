@@ -1,0 +1,142 @@
+# Setup transmission and site on Ubuntu 16.04
+# 
+# Parameters:
+# hostname - hostname for site and transmission Web GUI
+# username - username for HTTP auth and transmission Web GUI
+# password - password for HTTP auth and transmission Web GUI
+# port - port for transmission Web GUI
+#
+# Example:
+# ansible-playbook -i IP, /home/ubojan/Dropbox/personal-ansible/setup_transmission.yml --extra-vars '{"hostname":"test.ulemek.com","username":"username","password":"password","port":"8080"}'
+---
+
+- hosts: all
+  gather_facts: no
+  user: root
+  become: yes
+
+  tasks:
+
+    - name: Install nano, speedtest transmission
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+      with_items:
+        - nano
+        - speedtest-cli
+        - transmission-daemon
+
+    - name: Enable transmission and stop it
+      systemd:
+        name: transmission-daemon
+        enabled: yes
+        state: stopped
+
+    - name: Update rpc-username
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"rpc-username":'
+        line: '    "rpc-username": "{{ username }}",'
+
+    - name: Update rpc-password
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"rpc-password":'
+        line: '    "rpc-password": "{{ password }}",'
+
+    - name: Update rpc-port
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"rpc-port":'
+        line: '    "rpc-port": {{ port }},'
+
+    - name: Update umask
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"umask":'
+        line: '    "umask": 2,'
+
+    - name: Update rpc-whitelist-enabled
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"rpc-whitelist-enabled":'
+        line: '    "rpc-whitelist-enabled": false,'
+
+    - name: Update ratio-limit-enabled
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"ratio-limit-enabled":'
+        line: '    "ratio-limit-enabled": true,'
+    
+    - name: Update ratio-limit
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"ratio-limit":'
+        line: '    "ratio-limit": 2,'
+
+    - name: Update download-dir
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"download-dir":'
+        line: '    "download-dir": "/home/torrent/downloads",'
+
+    - name: Update incomplete-dir
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"incomplete-dir":'
+        line: '    "incomplete-dir": "/home/torrent/temporary",'
+
+    - name: Update incomplete-dir-enabled
+      lineinfile:
+        path: /var/lib/transmission-daemon/info/settings.json
+        regexp: '"incomplete-dir-enabled":'
+        line: '    "incomplete-dir-enabled": true,'
+
+    - name: Create transmission downloads folder
+      file:
+        path: /home/torrent/downloads
+        owner: debian-transmission
+        group: debian-transmission
+        state: directory
+        mode: "u+rwxs,g+rwx,o+rx-w"
+
+    - name: Create transmission temporary folder
+      file:
+        path: /home/torrent/temporary
+        owner: debian-transmission
+        group: debian-transmission
+        state: directory
+        mode: "u+rwxs,g+rwx,o+rx-w"
+
+    - name: Start transmission
+      systemd:
+        name: transmission-daemon
+        state: started
+
+    - name: Install Nginx, apache2-utils and ufw
+      apt:
+        name: "{{ item }}"
+      with_items:
+        - nginx
+        - apache2-utils
+        - ufw
+
+    - name: Setup ufw
+      shell: "ufw --force enable; ufw allow ssh; ufw allow {{ port }}"
+
+    - name: Copy transmission Nginx configuration
+      template:
+        src: templates/transmission.conf
+        dest: /etc/nginx/conf.d/transmission.conf
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Setup HTTP authenitication
+      shell: "htpasswd -bc /etc/nginx/conf.d/transmission_http_auth {{ username }} {{ password }}"
+
+    - name: Enable Nginx and restart it
+      systemd:
+        name: nginx
+        enabled: yes
+        state: restarted

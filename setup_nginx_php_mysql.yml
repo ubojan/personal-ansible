@@ -1,0 +1,94 @@
+# Setup Nginx, MySQL and PHP on Ubuntu 16.04
+#
+# Example:
+# ansible-playbook -i IP, /home/ubojan/Dropbox/personal-ansible/setup_nginx_php_mysql.yml --extra-vars '{"mysql_root_password":"password123"}'
+---
+
+- hosts: all
+  gather_facts: no
+  user: root
+  become: yes
+
+  tasks:
+
+    - name: Add PHP repository
+      apt_repository:
+        repo: 'ppa:ondrej/php'
+
+    - name: Install PHP and modules
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+      with_items:
+        - php7.2-fpm
+        - php7.2-bcmath
+        - php7.2-bz2
+        - php7.2-curl
+        - php7.2-gd
+        - php7.2-imap
+        - php7.2-intl
+        - php7.2-mbstring
+        - php7.2-mysql
+        - php7.2-soap
+        - php7.2-xml
+        - php7.2-xmlrpc
+        - php7.2-zip
+
+    - name: Secure settings
+      lineinfile:
+        path: /etc/php/7.2/fpm/php.ini
+        regexp: 'cgi.fix_pathinfo='
+        line: 'cgi.fix_pathinfo=0'
+
+    - name: Restart PHP-FPM
+      systemd:
+        name: php7.2-fpm
+        state: restarted
+
+    - name: Add MariaDB 10.2 repository
+      apt_repository:
+        repo: deb http://nyc2.mirrors.digitalocean.com/mariadb/repo/10.2/ubuntu xenial main
+        state: present
+
+    - name: Import MariaDB repo key
+      apt_key: keyserver=keyserver.ubuntu.com id=0xF1656F24C74CD1D8
+
+    - name: Install MariaDB
+      apt:
+        name: mariadb-server
+        update_cache: yes
+        dpkg_options: 'force-confold,force-confdef'
+
+    - name: Copy MySQL secure installation script to server
+      template:
+        src: templates/mysql_secure_installation.sql
+        dest: /root/mysql_secure_installation.sql
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Execute MySQL secure installation script and remove it
+      shell: mysql -sfu root < "mysql_secure_installation.sql"; rm mysql_secure_installation.sql
+      args:
+        chdir: /root
+        
+    - name: Add Nginx repository
+      apt_repository:
+        repo: 'ppa:chris-lea/nginx-devel'
+
+    - name: Install Nginx and ufw
+      apt:
+        name: "{{ item }}"
+        update_cache: yes
+      with_items:
+        - nginx-extras
+        - ufw
+
+    - name: Setup ufw
+      shell: ufw --force enable; ufw allow 'Nginx Full'; ufw allow ssh
+
+    - name: Enable Nginx and restart it
+      systemd:
+        name: nginx
+        enabled: yes
+        state: restarted
